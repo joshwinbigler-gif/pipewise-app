@@ -46,13 +46,15 @@ export default async function handler(req, res) {
   if (!anthropicKey) return res.status(500).json({ error: 'Anthropic API key not configured' });
 
   try {
+    // Strip Data URL prefix — Anthropic needs raw base64 only
+    const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
     const userContent = [
       {
         type: 'image',
         source: {
           type: 'base64',
           media_type: 'image/jpeg',
-          data: imageBase64,
+          data: base64Data,
         },
       },
     ];
