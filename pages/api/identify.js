@@ -84,7 +84,7 @@ export default async function handler(req, res) {
     }
 
     const anthropicData = await anthropicRes.json();
-    const claudeResponse = anthropicData.content?.[0]?.text || 'No response from Claude';
+    const claudeResponse = anthropicData.content?.find(b => b.type === 'text')?.text || 'No response from Claude';
 
     const webhookUrl = process.env.MAKE_WEBHOOK_URL;
     if (webhookUrl) {
