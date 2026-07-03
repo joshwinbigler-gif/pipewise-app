@@ -228,7 +228,7 @@ export default function Home() {
                     </>
                 }
               </div>
-              <input ref={fileInputRef} type="file" accept="image/*" capture="environment" onChange={handleImageChange} />
+              <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageChange} />
             </div>
 
             <div className="card">
@@ -323,7 +323,7 @@ export default function Home() {
                 >➤</button>
               </div>
             </form>
-            <input ref={replyFileInputRef} type="file" accept="image/*" capture="environment" onChange={handleReplyImageChange} />
+            <input ref={replyFileInputRef} type="file" accept="image/*" onChange={handleReplyImageChange} />
           </div>
         )}
       </div>
