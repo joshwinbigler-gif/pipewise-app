@@ -26,7 +26,7 @@ Example 2 - Full diagnosis:
 
 Example 3 - Forward to boss:
 Not sure. Forwarding to boss.
-**Next:** Malcolm will call you in <5min.
+**Next:** Josh will call you in <5min.
 
 MEMORY PROTOCOL (internal only - never show to tech):
 After every exchange, internally generate:
