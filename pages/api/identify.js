@@ -39,29 +39,36 @@ ROUTING RULE: When you cannot identify a fixture with confidence, start your res
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { imageBase64, description, techName } = req.body;
-  if (!imageBase64) return res.status(400).json({ error: 'No image provided' });
+  const { messages, techName } = req.body;
+  if (!messages || !messages.length) return res.status(400).json({ error: 'No messages provided' });
+
+  // First user message must have an image
+  const firstMsg = messages.find(m => m.role === 'user');
+  if (!firstMsg?.imageBase64) return res.status(400).json({ error: 'No image provided' });
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   if (!anthropicKey) return res.status(500).json({ error: 'Anthropic API key not configured' });
 
   try {
-    // Strip Data URL prefix — Anthropic needs raw base64 only
-    const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
-    const userContent = [
-      {
-        type: 'image',
-        source: {
-          type: 'base64',
-          media_type: 'image/jpeg',
-          data: base64Data,
-        },
-      },
-    ];
-
-    if (description) {
-      userContent.push({ type: 'text', text: description });
-    }
+    // Convert our message format to Anthropic's format
+    const anthropicMessages = messages.map((msg) => {
+      if (msg.role === 'assistant') {
+        return { role: 'assistant', content: [{ type: 'text', text: msg.text || '' }] };
+      }
+      // user message
+      const content = [];
+      if (msg.imageBase64) {
+        const base64Data = msg.imageBase64.replace(/^data:image\/\w+;base64,/, '');
+        content.push({
+          type: 'image',
+          source: { type: 'base64', media_type: 'image/jpeg', data: base64Data },
+        });
+      }
+      if (msg.text) {
+        content.push({ type: 'text', text: msg.text });
+      }
+      return { role: 'user', content };
+    });
 
     const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -74,7 +81,7 @@ export default async function handler(req, res) {
         model: 'claude-sonnet-5',
         max_tokens: 1024,
         system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: userContent }],
+        messages: anthropicMessages,
       }),
     });
 
@@ -86,6 +93,8 @@ export default async function handler(req, res) {
     const anthropicData = await anthropicRes.json();
     const claudeResponse = anthropicData.content?.find(b => b.type === 'text')?.text || 'No response from Claude';
 
+    // Log only the latest user message + Claude response to Sheets
+    const latestUserMsg = [...messages].reverse().find(m => m.role === 'user');
     const webhookUrl = process.env.MAKE_WEBHOOK_URL;
     if (webhookUrl) {
       fetch(webhookUrl, {
@@ -93,10 +102,10 @@ export default async function handler(req, res) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           From_Phone: techName || 'Unknown Tech',
-          Message_Body: description || '',
+          Message_Body: latestUserMsg?.text || '',
           Claude_Response: claudeResponse,
         }),
-      }).catch((err) => console.error('Make.com logging error (non-fatal):', err));
+      }).catch((err) => console.error('Logging error (non-fatal):', err));
     }
 
     return res.status(200).json({ result: claudeResponse });
