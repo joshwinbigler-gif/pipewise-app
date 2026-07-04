@@ -23,22 +23,29 @@ export default async function handler(req, res) {
     : '';
 
   // 2. Build system prompt
-  const systemPrompt = 'You are a plumbing fixture identification assistant for Brad\'s Plumbing. Your job is to help plumbing technicians identify faucets, fixtures, and parts from photos and descriptions.\n\n'
-    + 'When you can identify the fixture:\n'
-    + '- State the manufacturer, product line, and model if possible\n'
-    + '- Provide relevant repair/replacement guidance\n'
-    + '- Note any common issues or gotchas for that fixture\n'
-    + '- Include part numbers if you know them\n\n'
-    + 'When you cannot identify the fixture:\n'
-    + '- Start your response with exactly: \"Not sure. Forwarding to boss.\"\n'
-    + '- Then describe what you can see and what additional info would help\n\n'
-    + 'Always be concise and practical.\n\n'
-    + 'At the END of every response (on its own line), output exactly one of:\n'
-    + 'LEARN: [a short pattern or tip that would help identify this type of fixture in the future]\n'
-    + 'or\n'
-    + 'LEARN: none\n\n'
-    + 'The tech\'s name is ' + (techName || 'the technician') + '.'
-    + tribalSection;
+  const techLabel = techName || 'the technician';
+  const systemPrompt = [
+    'You are a plumbing fixture identification assistant for Brad\'s Plumbing.',
+    'Help technicians identify faucets, fixtures, and parts from photos and descriptions.',
+    '',
+    'When you CAN identify the fixture:',
+    '- State the manufacturer, product line, and model if possible',
+    '- Provide relevant repair/replacement guidance',
+    '- Note common issues or gotchas',
+    '- Include part numbers if known',
+    '',
+    'When you CANNOT identify the fixture:',
+    '- Start with exactly: "Not sure. Forwarding to boss."',
+    '- Describe what you can see and what additional info would help',
+    '',
+    'Be concise and practical — techs are in the field.',
+    '',
+    'At the END of every response (on its own line), output exactly one of:',
+    'LEARN: [a short tip that would help ID this fixture type in the future]',
+    'LEARN: none',
+    '',
+    'Tech name: ' + techLabel + '.' + tribalSection,
+  ].join('\n');
 
   // 3. Build Anthropic messages array
   const anthropicMessages = messages.map((msg) => {
@@ -49,11 +56,7 @@ export default async function handler(req, res) {
         content: [
           {
             type: 'image',
-            source: {
-              type: 'base64',
-              media_type: msg.imageMediaType || 'image/jpeg',
-              data: rawBase64,
-            },
+            source: { type: 'base64', media_type: msg.imageMediaType || 'image/jpeg', data: rawBase64 },
           },
           { type: 'text', text: msg.text || 'What is this fixture?' },
         ],
@@ -63,7 +66,7 @@ export default async function handler(req, res) {
   });
 
   // 4. Call Claude
-  let claudeResponse;
+  let claudeResponse = '';
   try {
     const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -83,24 +86,32 @@ export default async function handler(req, res) {
     const data = await apiRes.json();
     if (!apiRes.ok) throw new Error(data.error?.message || JSON.stringify(data));
 
-    claudeResponse = data.content?.[0]?.text || '';
+    // Find the first text block regardless of position
+    const textBlock = Array.isArray(data.content)
+      ? data.content.find(b => b.type === 'text')
+      : null;
+    claudeResponse = textBlock?.text || '';
+
+    if (!claudeResponse) {
+      console.error('No text block found. content:', JSON.stringify(data.content));
+      return res.status(500).json({ error: 'Claude returned no text. Check server logs.' });
+    }
   } catch (err) {
     console.error('Anthropic error:', err);
     return res.status(500).json({ error: 'Claude API error: ' + err.message });
   }
 
-  // 5. Extract LEARN: pattern and strip from visible response
+  // 5. Extract LEARN: line and strip from visible response
   let pattern = 'none';
-  const learnMatch = claudeResponse.match(/^LEARN:[\s]*(.*)/m);
+  const learnMatch = claudeResponse.match(/\nLEARN:\s*(.+)$|^LEARN:\s*(.+)$/m);
   if (learnMatch) {
-    pattern = learnMatch[1].trim() || 'none';
-    claudeResponse = claudeResponse.replace(/[\n]*LEARN:[^\n]*/m, '').trim();
+    pattern = (learnMatch[1] || learnMatch[2] || 'none').trim();
+    claudeResponse = claudeResponse.replace(/\n?LEARN:[^\n]*/m, '').trim();
   }
 
   // 6. Log to Apps Script
   const firstUserMsg = messages.find(m => m.role === 'user');
   const msgBody = firstUserMsg?.text || '(image only)';
-
   try {
     await fetch(APPS_SCRIPT_URL, {
       method: 'POST',
