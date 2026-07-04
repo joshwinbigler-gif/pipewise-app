@@ -36,7 +36,7 @@ export default async function handler(req, res) {
             source: {
               type: 'base64',
               media_type: msg.imageMediaType || 'image/jpeg',
-              data: msg.imageBase64,
+              data: msg.imageBase64.replace(/^data:[^;]+;base64,/, ''),
             },
           },
           { type: 'text', text: msg.text || 'What is this fixture?' },
