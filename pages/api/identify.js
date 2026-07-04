@@ -1,3 +1,11 @@
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '8mb',
+    },
+  },
+};
+
 const APPS_SCRIPT_URL = process.env.MAKE_WEBHOOK_URL;
 
 export default async function handler(req, res) {
