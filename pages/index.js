@@ -116,7 +116,6 @@ export default function Home() {
           <input
             type="file"
             accept="image/*"
-            capture="environment"
             onChange={(e) => handleImageChange(e.target.files[0], setFirstImage, setFirstImageType, setFirstPreview)}
             style={{ marginBottom: 8, display: 'block' }}
           />
@@ -170,7 +169,6 @@ export default function Home() {
           <input
             type="file"
             accept="image/*"
-            capture="environment"
             onChange={(e) => handleImageChange(e.target.files[0], setReplyImage, setReplyImageType, setReplyPreview)}
             style={{ marginBottom: 8, display: 'block' }}
           />
