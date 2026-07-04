@@ -22,11 +22,29 @@ export default function Home() {
     if (bottomRef.current) bottomRef.current.scrollIntoView({ behavior: 'smooth' });
   }, [conversation]);
 
-  function handleImageChange(file, setImg, setType, setPreview) {
+  function compressAndLoad(file, setImg, setType, setPreview) {
     if (!file) return;
-    setType(file.type || 'image/jpeg');
     const reader = new FileReader();
-    reader.onload = (e) => { setImg(e.target.result); setPreview(e.target.result); };
+    reader.onload = (e) => {
+      setPreview(e.target.result);
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 1024;
+        let { width, height } = img;
+        if (width > MAX || height > MAX) {
+          if (width > height) { height = Math.round(height * MAX / width); width = MAX; }
+          else { width = Math.round(width * MAX / height); height = MAX; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        const compressed = canvas.toDataURL('image/jpeg', 0.75);
+        setImg(compressed);
+        setType('image/jpeg');
+      };
+      img.src = e.target.result;
+    };
     reader.readAsDataURL(file);
   }
 
@@ -116,7 +134,7 @@ export default function Home() {
           <input
             type="file"
             accept="image/*"
-            onChange={(e) => handleImageChange(e.target.files[0], setFirstImage, setFirstImageType, setFirstPreview)}
+            onChange={(e) => compressAndLoad(e.target.files[0], setFirstImage, setFirstImageType, setFirstPreview)}
             style={{ marginBottom: 8, display: 'block' }}
           />
           {firstPreview && (
@@ -169,7 +187,7 @@ export default function Home() {
           <input
             type="file"
             accept="image/*"
-            onChange={(e) => handleImageChange(e.target.files[0], setReplyImage, setReplyImageType, setReplyPreview)}
+            onChange={(e) => compressAndLoad(e.target.files[0], setReplyImage, setReplyImageType, setReplyPreview)}
             style={{ marginBottom: 8, display: 'block' }}
           />
           {replyPreview && (
