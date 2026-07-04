@@ -1,34 +1,32 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 export default function Home() {
-  const [techName, setTechName]           = useState('');
-  const [conversation, setConversation]   = useState([]);
-  const [loading, setLoading]             = useState(false);
-  const [error, setError]                 = useState('');
-
-  // First-message form state
-  const [firstText, setFirstText]         = useState('');
-  const [firstImage, setFirstImage]       = useState(null);   // base64 string
+  const [mounted, setMounted] = useState(false);
+  const [techName, setTechName] = useState('');
+  const [conversation, setConversation] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [firstText, setFirstText] = useState('');
+  const [firstImage, setFirstImage] = useState(null);
   const [firstImageType, setFirstImageType] = useState('image/jpeg');
-  const [firstPreview, setFirstPreview]   = useState('');
-
-  // Reply form state
-  const [replyText, setReplyText]         = useState('');
-  const [replyImage, setReplyImage]       = useState(null);
+  const [firstPreview, setFirstPreview] = useState('');
+  const [replyText, setReplyText] = useState('');
+  const [replyImage, setReplyImage] = useState(null);
   const [replyImageType, setReplyImageType] = useState('image/jpeg');
-  const [replyPreview, setReplyPreview]   = useState('');
-
+  const [replyPreview, setReplyPreview] = useState('');
   const bottomRef = useRef(null);
-  const hasConversation = conversation.length > 0;
+
+  useEffect(() => { setMounted(true); }, []);
+
+  useEffect(() => {
+    if (bottomRef.current) bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+  }, [conversation]);
 
   function handleImageChange(file, setImg, setType, setPreview) {
     if (!file) return;
     setType(file.type || 'image/jpeg');
     const reader = new FileReader();
-    reader.onload = (e) => {
-      setImg(e.target.result);
-      setPreview(e.target.result);
-    };
+    reader.onload = (e) => { setImg(e.target.result); setPreview(e.target.result); };
     reader.readAsDataURL(file);
   }
 
@@ -39,31 +37,27 @@ export default function Home() {
       body: JSON.stringify({ messages, techName }),
     });
     const data = await res.json();
+    console.log('[Pipewise] status:', res.status, 'data:', JSON.stringify(data).slice(0, 300));
     if (!res.ok) throw new Error(data.error || 'API error ' + res.status);
-    if (!data.reply) throw new Error('Empty reply from server. Check Vercel logs.');
+    if (!data.reply) throw new Error('Empty reply. Server returned: ' + JSON.stringify(data));
     return data.reply;
   }
 
-  async function handleFirstSubmit(e) {
-    e.preventDefault();
-    if (!firstText && !firstImage) return;
-    setError('');
+  async function handleFirstSubmit() {
+    if (loading || (!firstText && !firstImage)) return;
     setLoading(true);
-
+    setError('');
     const userMsg = {
       role: 'user',
-      text: firstText,
-      imageBase64: firstImage || undefined,
-      imageMediaType: firstImage ? firstImageType : undefined,
+      text: firstText || 'What is this fixture?',
+      ...(firstImage && { imageBase64: firstImage, imageMediaType: firstImageType }),
     };
-
     try {
       const reply = await callAPI([userMsg]);
       setConversation([userMsg, { role: 'assistant', text: reply }]);
       setFirstText('');
       setFirstImage(null);
       setFirstPreview('');
-      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -71,27 +65,22 @@ export default function Home() {
     }
   }
 
-  async function handleReply(e) {
-    e.preventDefault();
-    if (!replyText && !replyImage) return;
-    setError('');
+  async function handleReply() {
+    if (loading || (!replyText && !replyImage)) return;
     setLoading(true);
-
+    setError('');
     const userMsg = {
       role: 'user',
-      text: replyText,
-      imageBase64: replyImage || undefined,
-      imageMediaType: replyImage ? replyImageType : undefined,
+      text: replyText || 'Can you clarify?',
+      ...(replyImage && { imageBase64: replyImage, imageMediaType: replyImageType }),
     };
-    const updatedConversation = [...conversation, userMsg];
-
+    const updated = [...conversation, userMsg];
     try {
-      const reply = await callAPI(updatedConversation);
-      setConversation([...updatedConversation, { role: 'assistant', text: reply }]);
+      const reply = await callAPI(updated);
+      setConversation([...updated, { role: 'assistant', text: reply }]);
       setReplyText('');
       setReplyImage(null);
       setReplyPreview('');
-      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -99,123 +88,110 @@ export default function Home() {
     }
   }
 
-  function handleNewJob() {
-    setConversation([]);
-    setFirstText('');
-    setFirstImage(null);
-    setFirstPreview('');
-    setReplyText('');
-    setReplyImage(null);
-    setReplyPreview('');
-    setError('');
-  }
+  if (!mounted) return <div style={{ minHeight: '100vh' }} />;
+
+  const hasConversation = conversation.length > 0;
 
   return (
-    <div style={{ maxWidth: 600, margin: '0 auto', padding: '1rem', fontFamily: 'sans-serif' }}>
-      <h1 style={{ fontSize: '1.4rem', marginBottom: '0.5rem' }}>🔧 Pipewise Diagnostic</h1>
+    <div style={{ maxWidth: 600, margin: '0 auto', padding: 16, fontFamily: 'sans-serif' }}>
+      <h1 style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 16 }}>
+        Brad&apos;s Plumbing — Fixture ID
+      </h1>
 
-      {/* Tech name */}
-      <input
-        type="text"
-        placeholder="Your name"
-        value={techName}
-        onChange={e => setTechName(e.target.value)}
-        style={{ width: '100%', padding: '0.5rem', marginBottom: '1rem', fontSize: '1rem', boxSizing: 'border-box' }}
-      />
+      {!hasConversation && (
+        <div>
+          <input
+            placeholder="Your name"
+            value={techName}
+            onChange={(e) => setTechName(e.target.value)}
+            style={{ width: '100%', padding: 8, border: '1px solid #ccc', borderRadius: 4, boxSizing: 'border-box', marginBottom: 8 }}
+          />
+          <textarea
+            placeholder="Describe the fixture or ask a question..."
+            value={firstText}
+            onChange={(e) => setFirstText(e.target.value)}
+            rows={3}
+            style={{ width: '100%', padding: 8, border: '1px solid #ccc', borderRadius: 4, boxSizing: 'border-box', marginBottom: 8 }}
+          />
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={(e) => handleImageChange(e.target.files[0], setFirstImage, setFirstImageType, setFirstPreview)}
+            style={{ marginBottom: 8, display: 'block' }}
+          />
+          {firstPreview && (
+            <img src={firstPreview} alt="preview" style={{ maxWidth: '100%', maxHeight: 200, marginBottom: 8 }} />
+          )}
+          <button
+            type="button"
+            onClick={handleFirstSubmit}
+            disabled={loading || (!firstText && !firstImage)}
+            style={{ padding: '10px 24px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}
+          >
+            {loading ? 'Thinking...' : 'Send'}
+          </button>
+        </div>
+      )}
 
-      {/* Conversation */}
       {hasConversation && (
-        <div style={{ marginBottom: '1rem' }}>
-          {conversation.map((msg, i) => (
-            <div key={i} style={{
-              marginBottom: '0.75rem',
-              textAlign: msg.role === 'user' ? 'right' : 'left',
-            }}>
-              {msg.imageBase64 && (
-                <img src={msg.imageBase64} alt="uploaded" style={{ maxWidth: 200, display: 'block', marginLeft: msg.role === 'user' ? 'auto' : 0, borderRadius: 8, marginBottom: 4 }} />
-              )}
-              <div style={{
-                display: 'inline-block',
-                background: msg.role === 'user' ? '#0071e3' : '#f0f0f0',
-                color: msg.role === 'user' ? '#fff' : '#000',
-                padding: '0.6rem 0.9rem',
-                borderRadius: 12,
-                maxWidth: '85%',
-                whiteSpace: 'pre-wrap',
-                textAlign: 'left',
-                fontSize: '0.95rem',
-              }}>
-                {msg.text || '(photo)'}
+        <div>
+          <div style={{ marginBottom: 16 }}>
+            {conversation.map((msg, i) => (
+              <div
+                key={i}
+                style={{
+                  marginBottom: 12,
+                  padding: 12,
+                  borderRadius: 8,
+                  background: msg.role === 'user' ? '#eff6ff' : '#f0fdf4',
+                  borderLeft: msg.role === 'user' ? '4px solid #2563eb' : '4px solid #16a34a',
+                }}
+              >
+                <div style={{ fontWeight: 'bold', marginBottom: 4, fontSize: 13 }}>
+                  {msg.role === 'user' ? (techName || 'Tech') : 'Claude'}
+                </div>
+                {msg.imageBase64 && (
+                  <img src={msg.imageBase64} alt="sent" style={{ maxWidth: '100%', maxHeight: 200, marginBottom: 4, borderRadius: 4 }} />
+                )}
+                <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{msg.text}</div>
               </div>
-            </div>
-          ))}
-          <div ref={bottomRef} />
+            ))}
+            <div ref={bottomRef} />
+          </div>
+
+          <textarea
+            placeholder="Follow-up question..."
+            value={replyText}
+            onChange={(e) => setReplyText(e.target.value)}
+            rows={2}
+            style={{ width: '100%', padding: 8, border: '1px solid #ccc', borderRadius: 4, boxSizing: 'border-box', marginBottom: 8 }}
+          />
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={(e) => handleImageChange(e.target.files[0], setReplyImage, setReplyImageType, setReplyPreview)}
+            style={{ marginBottom: 8, display: 'block' }}
+          />
+          {replyPreview && (
+            <img src={replyPreview} alt="preview" style={{ maxWidth: '100%', maxHeight: 200, marginBottom: 8 }} />
+          )}
+          <button
+            type="button"
+            onClick={handleReply}
+            disabled={loading || (!replyText && !replyImage)}
+            style={{ padding: '10px 24px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}
+          >
+            {loading ? 'Thinking...' : 'Send Reply'}
+          </button>
         </div>
       )}
 
       {error && (
-        <div style={{ color: 'red', marginBottom: '0.75rem', fontSize: '0.9rem' }}>
-          ⚠️ {error}
+        <div style={{ marginTop: 12, padding: 12, background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 4, color: '#dc2626', whiteSpace: 'pre-wrap' }}>
+          {error}
         </div>
-      )}
-
-      {loading && (
-        <div style={{ color: '#666', marginBottom: '0.75rem' }}>Thinking…</div>
-      )}
-
-      {/* First-message form */}
-      {!hasConversation && (
-        <form onSubmit={handleFirstSubmit}>
-          <textarea
-            placeholder="Describe the fixture or issue…"
-            value={firstText}
-            onChange={e => setFirstText(e.target.value)}
-            rows={3}
-            style={{ width: '100%', padding: '0.5rem', fontSize: '1rem', boxSizing: 'border-box', marginBottom: '0.5rem' }}
-          />
-          {firstPreview && <img src={firstPreview} alt="preview" style={{ maxWidth: 200, marginBottom: '0.5rem', borderRadius: 8 }} />}
-          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
-            <label style={{ cursor: 'pointer', background: '#eee', padding: '0.4rem 0.8rem', borderRadius: 8 }}>
-              📷 Photo
-              <input type="file" accept="image/*" style={{ display: 'none' }}
-                onChange={e => handleImageChange(e.target.files[0], setFirstImage, setFirstImageType, setFirstPreview)} />
-            </label>
-            <button type="submit" disabled={loading} style={{ flex: 1, padding: '0.5rem', fontSize: '1rem', background: '#0071e3', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>
-              Send
-            </button>
-          </div>
-        </form>
-      )}
-
-      {/* Reply form */}
-      {hasConversation && !loading && (
-        <form onSubmit={handleReply}>
-          {replyPreview && <img src={replyPreview} alt="preview" style={{ maxWidth: 200, marginBottom: '0.5rem', borderRadius: 8 }} />}
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end' }}>
-            <label style={{ cursor: 'pointer', background: '#eee', padding: '0.5rem 0.8rem', borderRadius: 8, fontSize: '1.2rem' }}>
-              📷
-              <input type="file" accept="image/*" style={{ display: 'none' }}
-                onChange={e => handleImageChange(e.target.files[0], setReplyImage, setReplyImageType, setReplyPreview)} />
-            </label>
-            <textarea
-              placeholder="Follow-up…"
-              value={replyText}
-              onChange={e => setReplyText(e.target.value)}
-              rows={2}
-              style={{ flex: 1, padding: '0.5rem', fontSize: '1rem', resize: 'vertical' }}
-            />
-            <button type="submit" style={{ padding: '0.5rem 0.9rem', background: '#0071e3', color: '#fff', border: 'none', borderRadius: 8, fontSize: '1.2rem', cursor: 'pointer' }}>
-              ➤
-            </button>
-          </div>
-        </form>
-      )}
-
-      {/* New Job */}
-      {hasConversation && (
-        <button onClick={handleNewJob} style={{ marginTop: '1rem', width: '100%', padding: '0.5rem', background: '#555', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>
-          + New Job
-        </button>
       )}
     </div>
   );
