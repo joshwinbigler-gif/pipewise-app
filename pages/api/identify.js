@@ -1,9 +1,11 @@
 const APPS_SCRIPT_URL = process.env.MAKE_WEBHOOK_URL;
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
 
-  const { messages, techName } = req.body;
+  const { messages, techName } = req.body || {};
   if (!messages || !Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: 'messages array required' });
   }
@@ -14,38 +16,32 @@ export default async function handler(req, res) {
     const tkRes = await fetch(APPS_SCRIPT_URL, { method: 'GET' });
     const tkData = await tkRes.json();
     tribalKnowledge = tkData.knowledge || '';
-  } catch (err) {
-    console.warn('Tribal knowledge fetch failed:', err.message);
+  } catch (tkErr) {
+    console.warn('Tribal knowledge fetch failed:', tkErr.message);
   }
 
+  // 2. Build system prompt
+  const techLabel = techName || 'the technician';
   const tribalSection = tribalKnowledge
     ? '\n\nTRIBAL KNOWLEDGE (patterns learned from past jobs):\n' + tribalKnowledge
     : '';
 
-  // 2. Build system prompt
-  const techLabel = techName || 'the technician';
-  const systemPrompt = [
-    'You are a plumbing fixture identification assistant for Brad\'s Plumbing.',
-    'Help technicians identify faucets, fixtures, and parts from photos and descriptions.',
-    '',
-    'When you CAN identify the fixture:',
-    '- State the manufacturer, product line, and model if possible',
-    '- Provide relevant repair/replacement guidance',
-    '- Note common issues or gotchas',
-    '- Include part numbers if known',
-    '',
-    'When you CANNOT identify the fixture:',
-    '- Start with exactly: "Not sure. Forwarding to boss."',
-    '- Describe what you can see and what additional info would help',
-    '',
-    'Be concise and practical — techs are in the field.',
-    '',
-    'At the END of every response (on its own line), output exactly one of:',
-    'LEARN: [a short tip that would help ID this fixture type in the future]',
-    'LEARN: none',
-    '',
-    'Tech name: ' + techLabel + '.' + tribalSection,
-  ].join('\n');
+  const systemPrompt =
+    "You are a plumbing fixture identification assistant for Brad's Plumbing.\n" +
+    "Help technicians identify faucets, fixtures, and parts from photos and descriptions.\n\n" +
+    "When you CAN identify the fixture:\n" +
+    "- State the manufacturer, product line, and model if possible\n" +
+    "- Provide relevant repair/replacement guidance\n" +
+    "- Note common issues or gotchas\n" +
+    "- Include part numbers if known\n\n" +
+    "When you CANNOT identify the fixture:\n" +
+    '- Start with exactly: "Not sure. Forwarding to boss."\n' +
+    "- Describe what you can see and what additional info would help\n\n" +
+    "Be concise and practical.\n\n" +
+    "At the END of every response output one of these on its own line:\n" +
+    "LEARN: [a short tip that would help ID this fixture type in the future]\n" +
+    "LEARN: none\n\n" +
+    "Tech name: " + techLabel + "." + tribalSection;
 
   // 3. Build Anthropic messages array
   const anthropicMessages = messages.map((msg) => {
@@ -56,7 +52,11 @@ export default async function handler(req, res) {
         content: [
           {
             type: 'image',
-            source: { type: 'base64', media_type: msg.imageMediaType || 'image/jpeg', data: rawBase64 },
+            source: {
+              type: 'base64',
+              media_type: msg.imageMediaType || 'image/jpeg',
+              data: rawBase64,
+            },
           },
           { type: 'text', text: msg.text || 'What is this fixture?' },
         ],
@@ -67,6 +67,7 @@ export default async function handler(req, res) {
 
   // 4. Call Claude
   let claudeResponse = '';
+  let rawContentTypes = [];
   try {
     const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -83,29 +84,36 @@ export default async function handler(req, res) {
       }),
     });
 
-    const data = await apiRes.json();
-    if (!apiRes.ok) throw new Error(data.error?.message || JSON.stringify(data));
+    const apiData = await apiRes.json();
 
-    // Find the first text block regardless of position
-    const textBlock = Array.isArray(data.content)
-      ? data.content.find(b => b.type === 'text')
-      : null;
-    claudeResponse = textBlock?.text || '';
-
-    if (!claudeResponse) {
-      console.error('No text block found. content:', JSON.stringify(data.content));
-      return res.status(500).json({ error: 'Claude returned no text. Check server logs.' });
+    if (!apiRes.ok) {
+      const errMsg = apiData.error?.message || JSON.stringify(apiData);
+      console.error('Anthropic API error:', errMsg);
+      return res.status(500).json({ error: 'Claude API error: ' + errMsg });
     }
-  } catch (err) {
-    console.error('Anthropic error:', err);
-    return res.status(500).json({ error: 'Claude API error: ' + err.message });
+
+    rawContentTypes = Array.isArray(apiData.content)
+      ? apiData.content.map((b) => b.type)
+      : [];
+    console.log('content_types:', JSON.stringify(rawContentTypes));
+
+    const textBlock = Array.isArray(apiData.content)
+      ? apiData.content.find((b) => b.type === 'text')
+      : null;
+
+    claudeResponse = textBlock?.text || '';
+    console.log('claude_raw_length:', claudeResponse.length);
+    console.log('claude_raw_start:', claudeResponse.slice(0, 150));
+
+  } catch (apiErr) {
+    console.error('Fetch/parse error:', apiErr.message);
+    return res.status(500).json({ error: 'Claude API error: ' + apiErr.message });
   }
 
-  // DEBUG
-  console.log('RAW_RESPONSE:', JSON.stringify(claudeResponse.slice(0, 300)));
-  console.log('CONTENT_BLOCKS:', JSON.stringify((data && data.content) ? data.content.map(b => b.type) : 'no data'));
-
-  console.log('RAW:', JSON.stringify(claudeResponse.slice(0,200)));
+  if (!claudeResponse) {
+    console.error('Empty response. content_types:', JSON.stringify(rawContentTypes));
+    return res.status(500).json({ error: 'Claude returned empty response. Check Vercel logs.' });
+  }
 
   // 5. Extract LEARN: line and strip from visible response
   let pattern = 'none';
@@ -115,23 +123,24 @@ export default async function handler(req, res) {
     claudeResponse = claudeResponse.replace(/\n?LEARN:[^\n]*/m, '').trim();
   }
 
-  // 6. Log to Apps Script
-  const firstUserMsg = messages.find(m => m.role === 'user');
+  console.log('reply_length:', claudeResponse.length);
+
+  // 6. Log to Apps Script (fire-and-forget)
+  const firstUserMsg = messages.find((m) => m.role === 'user');
   const msgBody = firstUserMsg?.text || '(image only)';
-  try {
-    await fetch(APPS_SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        From_Phone: techName || 'Unknown Tech',
-        Message_Body: msgBody,
-        Claude_Response: claudeResponse,
-        Pattern: pattern,
-      }),
-    });
-  } catch (err) {
-    console.warn('Apps Script POST failed:', err.message);
-  }
+
+  fetch(APPS_SCRIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      From_Phone: techName || 'Unknown Tech',
+      Message_Body: msgBody,
+      Claude_Response: claudeResponse,
+      Pattern: pattern,
+    }),
+  }).catch((logErr) => {
+    console.warn('Apps Script POST failed:', logErr.message);
+  });
 
   return res.status(200).json({ reply: claudeResponse });
 }
