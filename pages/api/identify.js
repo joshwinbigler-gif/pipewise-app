@@ -101,6 +101,12 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Claude API error: ' + err.message });
   }
 
+  // DEBUG
+  console.log('RAW_RESPONSE:', JSON.stringify(claudeResponse.slice(0, 300)));
+  console.log('CONTENT_BLOCKS:', JSON.stringify((data && data.content) ? data.content.map(b => b.type) : 'no data'));
+
+  console.log('RAW:', JSON.stringify(claudeResponse.slice(0,200)));
+
   // 5. Extract LEARN: line and strip from visible response
   let pattern = 'none';
   const learnMatch = claudeResponse.match(/\nLEARN:\s*(.+)$|^LEARN:\s*(.+)$/m);
