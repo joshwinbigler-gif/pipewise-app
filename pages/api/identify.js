@@ -23,11 +23,27 @@ export default async function handler(req, res) {
     : '';
 
   // 2. Build system prompt
-  const systemPrompt = 'You are a plumbing fixture identification assistant for Brad\'s Plumbing. Your job is to help plumbing technicians identify faucets, fixtures, and parts from photos and descriptions.\n\nWhen you can identify the fixture:\n- State the manufacturer, product line, and model if possible\n- Provide relevant repair/replacement guidance\n- Note any common issues or gotchas for that fixture\n- Include part numbers if you know them\n\nWhen you cannot identify the fixture:\n- Start your response with exactly: \"Not sure. Forwarding to boss.\"\n- Then describe what you can see and what additional info would help\n\nAlways be concise and practical.\n\nAt the END of every response (on its own line), output exactly one of:\nLEARN: [a short pattern or tip that would help identify this type of fixture in the future]\nor\nLEARN: none\n\nThe tech\'s name is ' + (techName || 'the technician') + '.' + tribalSection;
+  const systemPrompt = 'You are a plumbing fixture identification assistant for Brad\'s Plumbing. Your job is to help plumbing technicians identify faucets, fixtures, and parts from photos and descriptions.\n\n'
+    + 'When you can identify the fixture:\n'
+    + '- State the manufacturer, product line, and model if possible\n'
+    + '- Provide relevant repair/replacement guidance\n'
+    + '- Note any common issues or gotchas for that fixture\n'
+    + '- Include part numbers if you know them\n\n'
+    + 'When you cannot identify the fixture:\n'
+    + '- Start your response with exactly: \"Not sure. Forwarding to boss.\"\n'
+    + '- Then describe what you can see and what additional info would help\n\n'
+    + 'Always be concise and practical.\n\n'
+    + 'At the END of every response (on its own line), output exactly one of:\n'
+    + 'LEARN: [a short pattern or tip that would help identify this type of fixture in the future]\n'
+    + 'or\n'
+    + 'LEARN: none\n\n'
+    + 'The tech\'s name is ' + (techName || 'the technician') + '.'
+    + tribalSection;
 
   // 3. Build Anthropic messages array
   const anthropicMessages = messages.map((msg) => {
     if (msg.role === 'user' && msg.imageBase64) {
+      const rawBase64 = msg.imageBase64.replace(/^data:[^;]+;base64,/, '');
       return {
         role: 'user',
         content: [
@@ -36,7 +52,7 @@ export default async function handler(req, res) {
             source: {
               type: 'base64',
               media_type: msg.imageMediaType || 'image/jpeg',
-              data: msg.imageBase64.replace(/^data:[^;]+;base64,/, ''),
+              data: rawBase64,
             },
           },
           { type: 'text', text: msg.text || 'What is this fixture?' },
@@ -55,12 +71,10 @@ export default async function handler(req, res) {
         'Content-Type': 'application/json',
         'x-api-key': process.env.ANTHROPIC_API_KEY,
         'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'interleaved-thinking-2025-05-14',
       },
       body: JSON.stringify({
         model: 'claude-sonnet-5',
-        max_tokens: 16000,
-        thinking: { type: 'enabled', budget_tokens: 10000 },
+        max_tokens: 4096,
         system: systemPrompt,
         messages: anthropicMessages,
       }),
@@ -69,8 +83,7 @@ export default async function handler(req, res) {
     const data = await apiRes.json();
     if (!apiRes.ok) throw new Error(data.error?.message || JSON.stringify(data));
 
-    const textBlock = data.content?.find(b => b.type === 'text');
-    claudeResponse = textBlock?.text || '';
+    claudeResponse = data.content?.[0]?.text || '';
   } catch (err) {
     console.error('Anthropic error:', err);
     return res.status(500).json({ error: 'Claude API error: ' + err.message });
